@@ -1,95 +1,109 @@
 <template>
-    <div class="hello">
+    <div class="c-upload-root">
         <el-upload
-                class="upload-demo"
-                action
-                :http-request="handleUpload"
-                :on-preview="handlePreview"
-                :on-remove="handleRemove"
-                :on-success="handleSuccess"
-                :before-remove="beforeRemove"
-                multiple
-                :limit="limit"
-                :on-exceed="handleExceed"
-                :file-list="fileList"
-                :list-type="listType"
-        >
-            <el-button size="small" type="primary">点击上传</el-button>
-            <div slot="tip" class="el-upload__tip">{{ tip }}</div>
+                action=""
+                :multiple="true"
+                :http-request="uploadFile"
+                v-bind="$attrs">
+
+            <slot></slot>
+
+            <div class="el-upload__tip" slot="tip">
+                <slot name="tip"></slot>
+            </div>
+
         </el-upload>
     </div>
 </template>
 
 <script>
-    // eslint-disable
-
-    import { put, getFileNameUUID } from '../utils/ali-oss.js'
+    /**
+     * 在其它地方调用该组件时，
+     * 可以直接使用 el-upload 组件所提供的所有属性和方法，
+     * 只有 action 和 http-request 两个属性无法修改
+     */
+    import * as qiniu from 'qiniu-js'
 
     export default {
-        name: 'Upload',
-        props: {
-            tip: {
-                type: String,
-                default: '上传大小不能超过80M'
-            },
-            limit: {
-                type: Number,
-                default: 2
-            },
-            action: {
-                type: String,
-                default: ''
-            },
-            headers: {
-                type: Object,
-                default: () => {}
-            },
-            name: {
-                type: String,
-                default: ''
-            },
-            listType: {
-                type: String,
-                default: 'text'
-            }
-        },
+        name: 'upload',
+        inheritAttrs: false,
         data() {
             return {
-                fileList: []
+
+            }
+        },
+        props: {
+            // 上传凭证
+            // 七牛JavaScript SDK API: qiniu.upload(file: blob, key: string, token: string, putExtra: object, config: object) 里的 token
+            // 具体参数查看 https://developer.qiniu.com/kodo/manual/1208/upload-token
+            qnToken: {
+                type: String,
+                default: null
+            },
+            // 七牛JavaScript SDK API: qiniu.upload(file: blob, key: string, token: string, putExtra: object, config: object) 里的 config
+            // 具体参数查看 https://developer.qiniu.com/kodo/sdk/1283/javascript#3
+            qnConfig: {
+                type: Object,
+                default() {
+                    return {
+                        useCdnDomain: true,
+                        disableStatisticsReport: false,
+                        retryCount: 6,
+                        region: qiniu.region.z2
+                    }
+                }
+            },
+            // 七牛JavaScript SDK API: qiniu.upload(file: blob, key: string, token: string, putExtra: object, config: object) 里的 putExtra
+            // 具体参数查看 https://developer.qiniu.com/kodo/sdk/1283/javascript#3
+            qnPutextra: {
+                type: Object,
+                default() {
+                    return {
+                        fname: '',
+                        params: {},
+                        mimeType: null
+                    }
+                }
             }
         },
         methods: {
-            handleRemove(file, fileList) {
-                this.$emit('on-remove', file, fileList)
-            },
-            handlePreview(file) {
-                this.$emit('on-preview', file)
-            },
-            handleExceed(files, fileList) {
-                this.$message.warning(`每次只能上传 ${this.limit} 个文件`)
-            },
-            beforeRemove(file, fileList) {
-                return this.$confirm(`确定移除 ${file.name}？`)
-            },
-            handleSuccess(response, file, fileList) {
-                this.fileList = fileList
-                this.$emit('on-success', file, fileList)
-            },
             /**
-             * 自定义上传方法
+             * 文件上传方法，使用 七牛SDK 进行上传，覆盖 el-upload 的默认上传方法
+             * @param {Object} option - 包含下列属性：
+             * {
+             *      headers: 使用 el-upload 组件提供的 headers 属性
+             *      withCredentials: 使用 el-upload 组件提供的 headers 属性
+             *      file: 添加到浏览器的 file 对象
+             *      data: 使用 el-upload 组件提供的 data 属性
+             *      filename: 使用 el-upload 组件提供的 name 属性
+             *      action: 使用 el-upload 组件提供的 action 属性
+             *      onProgress: 使用 el-upload 组件提供的 onProgress 属性
+             *      onSuccess: 使用 el-upload 组件提供的 onSuccess 属性
+             *      onError: 使用 el-upload 组件提供的 onError 属性
+             *  }
              */
-            handleUpload(option) {
-                // 生成的文件名称
-                let objName = getFileNameUUID()
+            uploadFile(option) {
+                const fileName = this.changeFileName(option.file.name)
 
-                // 调用 ali-oss 中的方法
-                put(``, option.file).then(res => {
-                    console.log(res)
+                const observable = qiniu.upload(
+                    option.file,
+                    fileName,
+                    this.qnToken,
+                    this.qnPutextra,
+                    this.qnConfig
+                )
+                observable.subscribe({
+                    next: option.onProgress,
+                    error: option.onError,
+                    complete: option.onSuccess
+                })
+            },
+            // 修改原文件名，给文件名添加一个时间戳
+            changeFileName(filename) {
+                return filename.replace(/.[a-zA-Z0-9]+$/, (match) => {
+                    return `-${Date.now()}${match}`
                 })
             }
         }
     }
 </script>
-
-<!-- Add "scoped" attribute to limit CSS to this component only -->
-<style scoped></style>
